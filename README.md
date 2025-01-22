@@ -1,4 +1,4 @@
-# CS 153 - Infrastruture at Scale AI Agent Starter Code
+# CS 153 - Infrastructure at Scale AI Agent Starter Code
 
 Note that for Discord the terms Bot and App are interchangable. We will use App in this manual.
 
