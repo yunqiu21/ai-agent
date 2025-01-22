@@ -43,7 +43,7 @@ How to Leave Your Role:
 How to create or join your group channel:
 
 1. Send a Direct Message (DM) to the Admin Bot.
-2. Pick a unique group name (**IMPORTANT** )
+2. Pick a **unique** group name (**IMPORTANT**)
 3. Use the following command format:`.channel <Group Name>`
 4. Replace `<Group Name>` with the name of your project group (e.g., `.channel Group 1`).
 
@@ -97,12 +97,14 @@ MISTRAL_API_KEY=“your key here”
    <img width="700" alt="Screenshot 2024-04-22 at 4 31 31 PM" src="https://github.com/stanfordio/cs152bots/assets/96695971/520c040e-f494-4b7e-bb45-01dd59772462">
 
 10. Copy paste this link into the #app-invite-link channel on the CS 153 Discord server. Someone in the teaching team will invite your bot.
+11. After your bot appears in #welcome, find your bot's "application ID" on the Discord Developer panel.
+12. Send a DM to the admin bot: use the `.add-bot <application ID>` command to add the bot to your channel.
 
 #### Setting up the starter code
 
 First things first, the starter code is written in Python. You’ll want to make sure that you have Python 3 installed on your machine; if you don’t, follow [these instructions to install PyCharm](https://web.stanford.edu/class/cs106a/handouts/installingpycharm.html), the Stanford-recommended Python editor. Alternatively, you can use a text editor of your choice.
 
-Once you’ve done that, open a terminal in the same folder as your `bot.py ` file. (If you haven’t used your terminal before, check out [this guide](https://www.macworld.com/article/2042378/master-the-command-line-navigating-files-and-folders.html)!)
+Once you’ve done that, open a terminal in the same folder as your `bot.py` file. (If you haven’t used your terminal before, check out [this guide](https://www.macworld.com/article/2042378/master-the-command-line-navigating-files-and-folders.html)!)
 
 You’ll need to install some libraries if you don’t have them already, namely:
 
