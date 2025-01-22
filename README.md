@@ -98,7 +98,8 @@ MISTRAL_API_KEY=“your key here”
 
 10. Copy paste this link into the #app-invite-link channel on the CS 153 Discord server. Someone in the teaching team will invite your bot.
 11. After your bot appears in #welcome, find your bot's "application ID" on the Discord Developer panel.
-12. Send a DM to the admin bot: use the `.add-bot <application ID>` command to add the bot to your channel.
+    ![CleanShot 2025-01-21 at 23 42 53@2x](https://github.com/user-attachments/assets/2cf6b8fd-5756-494c-a6c3-8c61e821d568)
+13. Send a DM to the admin bot: use the `.add-bot <application ID>` command to add the bot to your channel.
 
 #### Setting up the starter code
 
