@@ -106,14 +106,22 @@ Once you’ve done that, open a terminal in the same folder as your `bot.py ` fi
 
 You’ll need to install some libraries if you don’t have them already, namely:
 
-    # python3 -m pip install requests
+    # python3 -m pip install mistralai
     # python3 -m pip install discord.py
+    # python3 -m pip install python-dotenv
+    # python3 -m pip install audioop-lts
 
 ## Guide To The Starter Code
 
-Next up, let’s take a look at what `bot.py` already does. To do this, run `python3 bot.py` and leave it running in your terminal. Next, go into your team’s channel `Group-Name` and try typing any message. You should see the bot respond in the same channel.
+The starter code includes two files, `bot.py` and `agent.py`. Let's take a look at what this project already does.
 
-The default behavior of the bot is, that any time it sees a message (from a user), it sends that message to Mistral's API and sends back the response.
+To do this, run `python3 bot.py` and leave it running in your terminal. Next, go into your team’s channel `Group-Name` and try typing any message. You should see the bot respond in the same channel. The default behavior of the bot is, that any time it sees a message (from a user), it sends that message to Mistral's API and sends back the response.
+
+Let's take a deeper look into how this is done. In the `bot.py` file, scroll to the `on_message` function. This function is called every time a message is sent in your channel. Observe how `agent.run()` is called on the message content, and how the result of that message call is sent back to the user.
+
+This agent is defined in the `agent.py` file. The `run()` function creates a simple LLM call with a system message defined at the top, and the user's message passed in. The response from the LLM is then returned.
+
+Check out this finalized [weather agent bot](https://github.com/CS-153/weather-agent-template/blob/main/agent.py) to see a more detailed example.
 
 ## Troubleshooting
 
