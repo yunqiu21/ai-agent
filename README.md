@@ -4,7 +4,7 @@ Note that for Discord the terms Bot and App are interchangable. We will use App 
 
 ## Discord App Framework Code
 
-This is the base framework for students to complete the CS 152 final project. Please follow the instructions to fork this repository into your own repository and make all of your additions there.
+This is the base framework for students to complete the CS 153 final project. Please follow the instructions to fork this repository into your own repository and make all of your additions there.
 
 ## Discord App Setup Instructions
 
@@ -100,6 +100,16 @@ MISTRAL_API_KEY=“your key here”
 11. After your bot appears in #welcome, find your bot's "application ID" on the Discord Developer panel.
     ![CleanShot 2025-01-21 at 23 42 53@2x](https://github.com/user-attachments/assets/2cf6b8fd-5756-494c-a6c3-8c61e821d568)
 13. Send a DM to the admin bot: use the `.add-bot <application ID>` command to add the bot to your channel.
+
+#### Setting up the Mistral API key
+
+1. Go to [Mistral AI Console](console.mistral.ai) and sign up for an account. During sign-up, you will be prompted to set up a workspace. Choose a name for your workspace and select "I'm a solo creator." If you already have an account, log in directly.
+2. After logging in, navigate to the "Workspace" section on the left-hand menu. Click on "Billing" and select “Experiment for free”.
+3. A pop-up window will appear. Click "Accept" to subscribe to the experiment plan and follow the instructions to verify your phone number.
+4. Once you have successfully subscribed to the experiment plan, go to the "API keys" page under the “API” section in the menu on the left.
+5. Click on "Create new key" to generate a new API key.
+6. After the key is generated, it will appear under “Your API keys” with the text: `“Your key is: <your-api-key>”`. Copy the API key and save it securely, as it will not be displayed again for security reasons.
+7. Open your `.env` file and paste the API key between the quotes on the line labeled `MISTRAL_API_KEY`.
 
 #### Setting up the starter code
 
