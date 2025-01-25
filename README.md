@@ -113,16 +113,17 @@ MISTRAL_API_KEY=“your key here”
 
 #### Setting up the starter code
 
-First things first, the starter code is written in Python. You’ll want to make sure that you have Python 3 installed on your machine; if you don’t, follow [these instructions to install PyCharm](https://web.stanford.edu/class/cs106a/handouts/installingpycharm.html), the Stanford-recommended Python editor. Alternatively, you can use a text editor of your choice.
+We'll be using Python, if you've got a good Python setup already, great! But make sure that it is at least Python version 3.8. If not, the easiest thing to do is to make sure you have at least 3GB free on your computer and then to head over to [miniconda install](https://docs.anaconda.com/miniconda/install/) and install the Python 3 version of Anaconda. It will work on any operating system.
 
-Once you’ve done that, open a terminal in the same folder as your `bot.py` file. (If you haven’t used your terminal before, check out [this guide](https://www.macworld.com/article/2042378/master-the-command-line-navigating-files-and-folders.html)!)
+After you have installed conda, close any open terminals you might have. Then open a terminal in the same folder as your `bot.py` file (If you haven’t used your terminal before, check out [this guide](https://www.macworld.com/article/2042378/master-the-command-line-navigating-files-and-folders.html)!). Once in, run the following command
 
-You’ll need to install some libraries if you don’t have them already, namely:
+## 1. Create an environment with dependencies specified in env.yml:
+    conda env create -f local_env.yml
 
-    # python3 -m pip install mistralai
-    # python3 -m pip install discord.py
-    # python3 -m pip install python-dotenv
-    # python3 -m pip install audioop-lts
+## 2. Activate the new environment:
+    conda activate discord_bot
+    
+This will install the required dependencies to start the project.
 
 ## Guide To The Starter Code
 
