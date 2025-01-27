@@ -10,6 +10,11 @@ This is the base framework for students to complete the CS 153 final project. Pl
 
 Your group will be making your very own AI agent and import it into our CS153 server as a Discord App. This starter code provides the framework for a Discord App implemented in Python. Follow the instructions below.
 
+### Instructional Video
+We have put together a video going through the setup of this starter code, and explaining various pieces of it. We highly recommend giving it a watch!
+
+[![Image 1224x834 Small](https://github.com/user-attachments/assets/990c87bc-17f8-44a6-8c0b-c313a8a04693)](https://drive.google.com/file/d/1doJQYJjCHA0fuOQ8hP3mcmDRORq7E28v/view)
+
 ### Join the Discord Server
 
 First, every member of the team should join the Discord server using the invite link on Ed.
@@ -96,8 +101,10 @@ MISTRAL_API_KEY=“your key here”
   <img width="1097" alt="bot_permissions" src="https://github.com/user-attachments/assets/4db80209-e8d3-4e71-8cff-5f5e04beceeb" />
 9. Copy paste this link into the #app-invite-link channel on the CS 153 Discord server. Someone in the teaching team will invite your bot.
 10. After your bot appears in #welcome, find your bot's "application ID" on the Discord Developer panel.
-    ![CleanShot 2025-01-21 at 23 42 53@2x](https://github.com/user-attachments/assets/2cf6b8fd-5756-494c-a6c3-8c61e821d568)
-11. Send a DM to the admin bot: use the `.add-bot <application ID>` command to add the bot to your channel.
+
+![CleanShot 2025-01-21 at 23 42 53@2x](https://github.com/user-attachments/assets/2cf6b8fd-5756-494c-a6c3-8c61e821d568)
+    
+12. Send a DM to the admin bot: use the `.add-bot <application ID>` command to add the bot to your channel.
 
 #### Setting up the Mistral API key
 
