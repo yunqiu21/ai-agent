@@ -23,6 +23,9 @@ offers = {}
 # Example structure: [("username", "message text"), ("Bot", "message text"), ...]
 debate_history = []
 
+# Track which users are currently in the middle of a create_offer_form
+active_form_sessions = {}
+
 # Setup logging
 logger = logging.getLogger("discord")
 logger.setLevel(logging.INFO)
@@ -107,7 +110,7 @@ async def generate_company_argument(offer_id: int) -> str:
     # Step 3: Construct user_prompt telling Mistral to produce an argument from the company's perspective
     user_prompt = (
         f"Now, produce a persuasive argument from the perspective of company '{company_data['name']}' (offer ID: {offer_id}). "
-        f"Focus on why the candidate should choose this offer over others. At most 200 characters"
+        f"Focus on why the candidate should choose this offer over others. Do not repeat your previous arguments. At most 400 characters"
     )
 
     # Step 4: Call MistralAgent
@@ -126,26 +129,31 @@ async def on_ready():
 
 @bot.event
 async def on_message(message: discord.Message):
-    # Do not respond to our own messages or other bots
+    """
+    This event is triggered on every incoming message. We skip sending the user's
+    message to Mistral if they are in an active form session. Otherwise, if it's
+    not a command (!...), we send it to Mistral.
+    """
     if message.author.bot:
         return
 
-    # If it's a prefix command, let the command framework handle it
+    # If user typed a command (starts with "!"), process it and return
     if message.content.startswith(bot.command_prefix):
         await bot.process_commands(message)
         return
 
-    # Otherwise, treat it as a normal user message that goes into debate_history
-    debate_history.append((message.author.display_name, message.content))
+    # If this user is currently in a form session, skip Mistral:
+    if message.author.id in active_form_sessions:
+        # We do nothing, because presumably the create_offer_form logic
+        # is waiting for their input with bot.wait_for(...)
+        return
 
-    # Also get a normal AI response from Mistral (optional, if you want the bot to reply to all user messages)
+    # Otherwise, this is a normal user message; let's forward it to Mistral
     logger.info(f"Processing normal message from {message.author}: {message.content}")
+    debate_history.append((message.author.display_name, message.content))
     ai_response = await agent.run(message)
-
-    # Add the AI response to debate_history if you want the next round to see the AI’s prior statements
     debate_history.append(("Bot", ai_response))
 
-    # Reply in Discord
     await message.reply(ai_response)
 
 
@@ -160,24 +168,154 @@ async def ping(ctx, *, arg=None):
         await ctx.send(f"Pong! Your argument was {arg}")
 
 
-@bot.command(name="create", help="Create a new job offer.")
-async def create_offer(ctx: commands.Context, offer_id: int, name: str, job_description: str, *, package: str):
-    if offer_id in offers:
-        await ctx.send(f"Offer with ID `{offer_id}` already exists! Use !update to add more info.")
+#
+# Helper: A simple function to wait for one message from the same user/channel
+#
+async def ask_user_for_input(ctx: commands.Context, prompt: str, timeout=120) -> (bool, str):
+    """
+    Sends `prompt` to the channel, waits for user's next message.
+    Returns (True, <message_content>) if user responded.
+    Returns (False, None) if user timed out or typed 'cancel'.
+    """
+    await ctx.send(prompt)
+
+    def check(m: discord.Message):
+        return m.author == ctx.author and m.channel == ctx.channel
+
+    try:
+        msg = await bot.wait_for("message", check=check, timeout=timeout)
+    except:
+        await ctx.send("**Timed out.** Aborting the creation process.")
+        return False, None
+
+    if msg.content.lower() == "cancel":
+        await ctx.send("**Cancelled.** Aborting the creation process.")
+        return False, None
+
+    return True, msg.content
+
+
+#
+# Multi-step Create Command
+#
+@bot.command(name="create", help="Start an interactive form to create a new job offer.")
+async def create_offer_form(ctx: commands.Context):
+    """
+    !create_form
+    A multi-step flow to create an offer with a potentially long job description.
+    """
+    # 1) Mark user as in form session
+    if ctx.author.id in active_form_sessions:
+        await ctx.send("You are already creating an offer. Cancel or finish that first.")
+        return
+    active_form_sessions[ctx.author.id] = True
+
+    # 2) Ask for Offer ID
+    success, offer_id_str = await ask_user_for_input(
+        ctx,
+        "**Let's create a new job offer.**\nPlease enter an offer ID (integer) or type `cancel`:"
+    )
+    if not success:
+        active_form_sessions.pop(ctx.author.id, None)
         return
 
+    try:
+        offer_id = int(offer_id_str)
+    except ValueError:
+        await ctx.send("Invalid integer for Offer ID. Aborting.")
+        active_form_sessions.pop(ctx.author.id, None)
+        return
+
+    if offer_id in offers:
+        await ctx.send(f"An offer with ID **{offer_id}** already exists. Aborting.")
+        active_form_sessions.pop(ctx.author.id, None)
+        return
+
+    # 3) Ask for Company Name
+    success, company_name = await ask_user_for_input(
+        ctx,
+        "Please enter the **Company Name** (or type `cancel`):"
+    )
+    if not success:
+        active_form_sessions.pop(ctx.author.id, None)
+        return
+
+    # 4) Ask for multi-line Job Description
+    await ctx.send(
+        "Please enter the **Job Description**.\n"
+        "Type as many lines as you want. When finished, type `DONE` on a separate line.\n"
+        "Or type `cancel` to abort."
+    )
+    job_description_lines = []
+    while True:
+        try:
+            msg = await bot.wait_for(
+                "message",
+                check=lambda m: m.author == ctx.author and m.channel == ctx.channel,
+                timeout=300
+            )
+        except:
+            await ctx.send("**Timed out** while waiting for the job description. Aborting.")
+            active_form_sessions.pop(ctx.author.id, None)
+            return
+
+        if msg.content.lower() == "cancel":
+            await ctx.send("**Cancelled.** Aborting the creation process.")
+            active_form_sessions.pop(ctx.author.id, None)
+            return
+
+        if msg.content.lower() == "done":
+            break
+
+        job_description_lines.append(msg.content)
+
+    job_description = "\n".join(job_description_lines)
+
+    # 5) Ask for Package
+    success, package_details = await ask_user_for_input(
+        ctx,
+        "Enter the **Package** (e.g. `100k USD + benefits`):"
+    )
+    if not success:
+        active_form_sessions.pop(ctx.author.id, None)
+        return
+
+    # 6) Summarize + Confirmation
+    summary = (
+        f"**Offer ID:** {offer_id}\n"
+        f"**Company Name:** {company_name}\n"
+        f"**Job Description:**\n{job_description}\n"
+        f"**Package:** {package_details}\n"
+    )
+    await ctx.send(f"**Here is what you’ve entered:**\n{summary}")
+
+    success, confirm = await ask_user_for_input(ctx, "Type `yes` to confirm or `no` to abort:")
+    if not success:
+        active_form_sessions.pop(ctx.author.id, None)
+        return
+
+    if confirm.lower() != "yes":
+        await ctx.send("**Aborted** creation process. No offer created.")
+        active_form_sessions.pop(ctx.author.id, None)
+        return
+
+    # 7) Actually save
     offers[offer_id] = {
-        "name": name,
+        "name": company_name,
         "job_description": job_description,
-        "package": package,
+        "package": package_details,
         "extra": []
     }
+
     await ctx.send(
-        f"**Created** offer `{offer_id}`:\n"
-        f"- Company Name: {name}\n"
-        f"- Job Description: {job_description}\n"
-        f"- Package: {package}"
+        f"**Success!** Created offer `{offer_id}`:\n"
+        f"- Company Name: {company_name}\n"
+        f"- Job Description: (see above)\n"
+        f"- Package: {package_details}"
     )
+
+    # 8) Mark session as finished
+    active_form_sessions.pop(ctx.author.id, None)
 
 
 @bot.command(name="update", help="Update an existing offer with more info.")
@@ -201,6 +339,33 @@ async def remove_offer(ctx: commands.Context, offer_id: int):
         f"**Removed** offer `{offer_id}` from consideration:\n"
         f"- Company: {removed_offer['name']}"
     )
+
+
+@bot.command(name="list_offers", help="List all currently available offers.")
+async def list_all_offers(ctx: commands.Context):
+    """
+    !list_offers
+    Displays all offers in the 'offers' dictionary.
+    """
+    if not offers:
+        await ctx.send("No offers are currently available.")
+        return
+
+    # Build a string listing each offer
+    lines = ["**Currently Available Offers:**\n"]
+    for oid, data in offers.items():
+        lines.append(
+            f"**Offer ID:** {oid}\n"
+            f"**Company Name:** {data['name']}\n"
+            f"**Job Description:**\n{data['job_description'][:50]}...\n"
+            f"**Package:** {data['package']}\n"
+            f"**Extra Info:** {', '.join(data['extra']) if data['extra'] else '(None)'}\n"
+            "--------------------------------------\n"
+        )
+
+    message_text = "\n".join(lines)
+    # If you worry about message length, you can chunk it or send multiple messages
+    await ctx.send(message_text)
 
 
 @bot.command(name="y", help="Continue the debate for one round (all companies speak).")
