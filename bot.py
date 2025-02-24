@@ -73,6 +73,105 @@ agent = MistralAgent()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 
+# Create Offer Modal with URL support
+class CreateOfferModal(discord.ui.Modal, title="Create New Offer"):
+    offer_id = discord.ui.TextInput(
+        label="Offer ID",
+        placeholder="Enter a number (e.g., 1, 2, 3)",
+        style=discord.TextStyle.short,
+        required=True
+    )
+    company_name = discord.ui.TextInput(
+        label="Company Name",
+        placeholder="Enter company name",
+        style=discord.TextStyle.short,
+        required=True
+    )
+    job_description = discord.ui.TextInput(
+        label="Job Description or URL",
+        placeholder="Enter job description or paste a URL",
+        style=discord.TextStyle.paragraph,
+        required=True
+    )
+    package = discord.ui.TextInput(
+        label="Package",
+        placeholder="e.g., 100k USD + benefits",
+        style=discord.TextStyle.short,
+        required=True
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            offer_id = int(self.offer_id.value)
+            if str(offer_id) in offers:
+                await interaction.response.send_message("An offer with this ID already exists!", ephemeral=True)
+                return
+
+            # Check if job description is a URL
+            job_desc = self.job_description.value
+            if validators.url(job_desc):
+                logger.info(f"URL detected, fetching content...")
+                job_desc = fetch_website_info(job_desc)
+                if job_desc.startswith("Error"):
+                    await interaction.response.send_message(f"Failed to fetch URL content: {job_desc}", ephemeral=True)
+                    return
+
+            # Create the offer
+            offers[str(offer_id)] = {
+                "name": self.company_name.value,
+                "job_description": job_desc,
+                "package": self.package.value,
+                "extra": []
+            }
+
+            await interaction.response.send_message(
+                f"**Success!** Created offer `{offer_id}`:\n"
+                f"- Company Name: {self.company_name.value}\n"
+                f"- Job Description: {job_desc[:100]}...\n"
+                f"- Package: {self.package.value}"
+            )
+
+            # Generate initial AI response
+            argument = await generate_company_argument(str(offer_id), interaction.user.id)
+            await interaction.followup.send(f"**Initial AI Response from {self.company_name.value}**:\n{argument}")
+
+        except ValueError:
+            await interaction.response.send_message("Invalid offer ID! Please use a number.", ephemeral=True)
+
+# Update Offer Modal
+class UpdateOfferModal(discord.ui.Modal, title="Update Offer"):
+    def __init__(self, offer_id: str):
+        super().__init__()
+        self.offer_id = offer_id
+        
+        self.extra_info = discord.ui.TextInput(
+            label="Additional Information",
+            placeholder="Enter new information about this offer",
+            style=discord.TextStyle.paragraph,
+            required=True
+        )
+        self.add_item(self.extra_info)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        offers[self.offer_id]["extra"].append(self.extra_info.value)
+        await interaction.response.send_message(
+            f"**Updated** offer `{self.offer_id}` with new info:\n{self.extra_info.value}"
+        )
+
+# Slash Commands
+@bot.tree.command(name="create", description="Create a new job offer")
+async def create(interaction: discord.Interaction):
+    modal = CreateOfferModal()
+    await interaction.response.send_modal(modal)
+
+@bot.tree.command(name="update", description="Update an existing offer")
+async def update(interaction: discord.Interaction, offer_id: str):
+    if offer_id not in offers:
+        await interaction.response.send_message(f"No offer found with ID `{offer_id}`.", ephemeral=True)
+        return
+        
+    modal = UpdateOfferModal(offer_id)
+    await interaction.response.send_modal(modal)
 #
 # Helper Functions
 #
@@ -152,6 +251,11 @@ async def generate_company_argument(offer_id: int, user_id: int) -> str:
 @bot.event
 async def on_ready():
     logger.info(f"{bot.user} has connected to Discord!")
+    try:
+        synced = await bot.tree.sync()
+        logger.info(f"Synced {len(synced)} command(s)")
+    except Exception as e:
+        logger.error(f"Failed to sync commands: {e}")
 
 
 @bot.event
@@ -238,150 +342,150 @@ async def ask_user_for_input(ctx: commands.Context, prompt: str, timeout=120) ->
 #
 # Multi-step Create Command
 #
-@bot.command(name="create", help="Start an interactive form to create a new job offer.")
-async def create_offer_form(ctx: commands.Context):
-    """
-    !create_form
-    A multi-step flow to create an offer with a potentially long job description.
-    """
-    # 1) Mark user as in form session
-    if ctx.author.id in active_form_sessions:
-        await ctx.send("You are already creating an offer. Cancel or finish that first.")
-        return
-    active_form_sessions[ctx.author.id] = True
+# @bot.command(name="create", help="Start an interactive form to create a new job offer.")
+# async def create_offer_form(ctx: commands.Context):
+#     """
+#     !create_form
+#     A multi-step flow to create an offer with a potentially long job description.
+#     """
+#     # 1) Mark user as in form session
+#     if ctx.author.id in active_form_sessions:
+#         await ctx.send("You are already creating an offer. Cancel or finish that first.")
+#         return
+#     active_form_sessions[ctx.author.id] = True
 
-    # 2) Ask for Offer ID
-    success, offer_id_str = await ask_user_for_input(
-        ctx,
-        "**Let's create a new job offer.**\nPlease enter an offer ID (integer) or type `cancel`:"
-    )
-    if not success:
-        active_form_sessions.pop(ctx.author.id, None)
-        return
+#     # 2) Ask for Offer ID
+#     success, offer_id_str = await ask_user_for_input(
+#         ctx,
+#         "**Let's create a new job offer.**\nPlease enter an offer ID (integer) or type `cancel`:"
+#     )
+#     if not success:
+#         active_form_sessions.pop(ctx.author.id, None)
+#         return
 
-    try:
-        offer_id = int(offer_id_str)
-    except ValueError:
-        await ctx.send("Invalid integer for Offer ID. Aborting.")
-        active_form_sessions.pop(ctx.author.id, None)
-        return
+#     try:
+#         offer_id = int(offer_id_str)
+#     except ValueError:
+#         await ctx.send("Invalid integer for Offer ID. Aborting.")
+#         active_form_sessions.pop(ctx.author.id, None)
+#         return
 
-    if offer_id in offers:
-        await ctx.send(f"An offer with ID **{offer_id}** already exists. Aborting.")
-        active_form_sessions.pop(ctx.author.id, None)
-        return
+#     if offer_id in offers:
+#         await ctx.send(f"An offer with ID **{offer_id}** already exists. Aborting.")
+#         active_form_sessions.pop(ctx.author.id, None)
+#         return
 
-    # 3) Ask for Company Name
-    success, company_name = await ask_user_for_input(
-        ctx,
-        "Please enter the **Company Name** (or type `cancel`):"
-    )
-    if not success:
-        active_form_sessions.pop(ctx.author.id, None)
-        return
+#     # 3) Ask for Company Name
+#     success, company_name = await ask_user_for_input(
+#         ctx,
+#         "Please enter the **Company Name** (or type `cancel`):"
+#     )
+#     if not success:
+#         active_form_sessions.pop(ctx.author.id, None)
+#         return
 
-    # 4) Ask for multi-line Job Description
-    await ctx.send(
-        "Please enter the **Job Description**.\n"
-        "Type as many lines as you want. When finished, type `DONE` on a separate line.\n"
-        "Or type `cancel` to abort."
-    )
-    try:
-        first_msg = await bot.wait_for(
-                "message",
-                check=lambda m: m.author == ctx.author and m.channel == ctx.channel,
-                timeout=300
-            )
-    except:
-        await ctx.send("**Timed out** while waiting for the job description. Aborting.")
-        active_form_sessions.pop(ctx.author.id, None)
-        return
-    logger.info(f"job description: {first_msg.content}")
-    if validators.url(first_msg.content):  # Check if it's a valid URL
-        logger.info(f"user inputs an url.")
-        job_description = fetch_website_info(first_msg.content)
-        logger.info(f"parsed url: {job_description[:30]}")
-    else:
-        job_description_lines = [first_msg.content]
-        while True:
-            try:
-                msg = await bot.wait_for(
-                    "message",
-                    check=lambda m: m.author == ctx.author and m.channel == ctx.channel,
-                    timeout=300
-                )
-            except:
-                await ctx.send("**Timed out** while waiting for the job description. Aborting.")
-                active_form_sessions.pop(ctx.author.id, None)
-                return
+#     # 4) Ask for multi-line Job Description
+#     await ctx.send(
+#         "Please enter the **Job Description**.\n"
+#         "Type as many lines as you want. When finished, type `DONE` on a separate line.\n"
+#         "Or type `cancel` to abort."
+#     )
+#     try:
+#         first_msg = await bot.wait_for(
+#                 "message",
+#                 check=lambda m: m.author == ctx.author and m.channel == ctx.channel,
+#                 timeout=300
+#             )
+#     except:
+#         await ctx.send("**Timed out** while waiting for the job description. Aborting.")
+#         active_form_sessions.pop(ctx.author.id, None)
+#         return
+#     logger.info(f"job description: {first_msg.content}")
+#     if validators.url(first_msg.content):  # Check if it's a valid URL
+#         logger.info(f"user inputs an url.")
+#         job_description = fetch_website_info(first_msg.content)
+#         logger.info(f"parsed url: {job_description[:30]}")
+#     else:
+#         job_description_lines = [first_msg.content]
+#         while True:
+#             try:
+#                 msg = await bot.wait_for(
+#                     "message",
+#                     check=lambda m: m.author == ctx.author and m.channel == ctx.channel,
+#                     timeout=300
+#                 )
+#             except:
+#                 await ctx.send("**Timed out** while waiting for the job description. Aborting.")
+#                 active_form_sessions.pop(ctx.author.id, None)
+#                 return
 
-            if msg.content.lower() == "cancel":
-                await ctx.send("**Cancelled.** Aborting the creation process.")
-                active_form_sessions.pop(ctx.author.id, None)
-                return
+#             if msg.content.lower() == "cancel":
+#                 await ctx.send("**Cancelled.** Aborting the creation process.")
+#                 active_form_sessions.pop(ctx.author.id, None)
+#                 return
 
-            if msg.content.lower() == "done":
-                break
+#             if msg.content.lower() == "done":
+#                 break
 
-            job_description_lines.append(msg.content)
+#             job_description_lines.append(msg.content)
 
-        job_description = "\n".join(job_description_lines)
+#         job_description = "\n".join(job_description_lines)
 
-    # 5) Ask for Package
-    success, package_details = await ask_user_for_input(
-        ctx,
-        "Enter the **Package** (e.g. `100k USD + benefits`):"
-    )
-    if not success:
-        active_form_sessions.pop(ctx.author.id, None)
-        return
+#     # 5) Ask for Package
+#     success, package_details = await ask_user_for_input(
+#         ctx,
+#         "Enter the **Package** (e.g. `100k USD + benefits`):"
+#     )
+#     if not success:
+#         active_form_sessions.pop(ctx.author.id, None)
+#         return
 
-    # 6) Summarize + Confirmation
-    summary = (
-        f"**Offer ID:** {offer_id}\n"
-        f"**Company Name:** {company_name}\n"
-        f"**Job Description:**\n{job_description}\n"
-        f"**Package:** {package_details}\n"
-    )
-    await ctx.send(f"**Here is what you’ve entered:**\n{summary}")
+#     # 6) Summarize + Confirmation
+#     summary = (
+#         f"**Offer ID:** {offer_id}\n"
+#         f"**Company Name:** {company_name}\n"
+#         f"**Job Description:**\n{job_description}\n"
+#         f"**Package:** {package_details}\n"
+#     )
+#     await ctx.send(f"**Here is what you’ve entered:**\n{summary}")
 
-    success, confirm = await ask_user_for_input(ctx, "Type `yes` to confirm or `no` to abort:")
-    if not success:
-        active_form_sessions.pop(ctx.author.id, None)
-        return
+#     success, confirm = await ask_user_for_input(ctx, "Type `yes` to confirm or `no` to abort:")
+#     if not success:
+#         active_form_sessions.pop(ctx.author.id, None)
+#         return
 
-    if confirm.lower() != "yes":
-        await ctx.send("**Aborted** creation process. No offer created.")
-        active_form_sessions.pop(ctx.author.id, None)
-        return
+#     if confirm.lower() != "yes":
+#         await ctx.send("**Aborted** creation process. No offer created.")
+#         active_form_sessions.pop(ctx.author.id, None)
+#         return
 
-    # 7) Actually save
-    offers[offer_id] = {
-        "name": company_name,
-        "job_description": job_description,
-        "package": package_details,
-        "extra": []
-    }
+#     # 7) Actually save
+#     offers[offer_id] = {
+#         "name": company_name,
+#         "job_description": job_description,
+#         "package": package_details,
+#         "extra": []
+#     }
 
-    await ctx.send(
-        f"**Success!** Created offer `{offer_id}`:\n"
-        f"- Company Name: {company_name}\n"
-        f"- Job Description: (see above)\n"
-        f"- Package: {package_details}"
-    )
+#     await ctx.send(
+#         f"**Success!** Created offer `{offer_id}`:\n"
+#         f"- Company Name: {company_name}\n"
+#         f"- Job Description: (see above)\n"
+#         f"- Package: {package_details}"
+#     )
 
-    # 8) Mark session as finished
-    active_form_sessions.pop(ctx.author.id, None)
+#     # 8) Mark session as finished
+#     active_form_sessions.pop(ctx.author.id, None)
 
 
-@bot.command(name="update", help="Update an existing offer with more info.")
-async def update_offer(ctx: commands.Context, offer_id: int, *, more_info: str):
-    if offer_id not in offers:
-        await ctx.send(f"No offer found with ID `{offer_id}`.")
-        return
+# @bot.command(name="update", help="Update an existing offer with more info.")
+# async def update_offer(ctx: commands.Context, offer_id: int, *, more_info: str):
+#     if offer_id not in offers:
+#         await ctx.send(f"No offer found with ID `{offer_id}`.")
+#         return
 
-    offers[offer_id]["extra"].append(more_info)
-    await ctx.send(f"**Updated** offer `{offer_id}` with new info:\n{more_info}")
+#     offers[offer_id]["extra"].append(more_info)
+#     await ctx.send(f"**Updated** offer `{offer_id}` with new info:\n{more_info}")
 
 
 @bot.command(name="remove", help="Remove an existing offer.")
