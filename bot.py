@@ -2,9 +2,17 @@ import os
 import discord
 import logging
 
+
 from discord.ext import commands
 from dotenv import load_dotenv
 from agent import MistralAgent
+
+from discord.ui import Button, View, Modal, TextInput
+from discord import ButtonStyle, TextStyle
+
+import requests
+from bs4 import BeautifulSoup
+import validators
 
 #
 # Global Data Structures
@@ -17,11 +25,31 @@ from agent import MistralAgent
 #       "package": "...",
 #       "extra": [ ...list of appended updates... ]
 #   }
-offers = {}
+offers = {
+    "1": {        
+        "name": "CompanyA",
+        "job_description": "As a Data professional at Meta, you will shape the future of people-facing and business-facing products we build across our entire family of applications (Facebook, Instagram, Messenger, WhatsApp, Oculus). By applying your technical skills, analytical mindset, and product intuition to one of the richest data sets in the world, you will have the opportunity to work on complex and meaningful problems that have a direct impact on the lives of people around the world. You will have the chance to work with cutting-edge technology and tools to develop innovative solutions to some of the most pressing challenges facing our platform.",
+        "package": "100k USD",
+        "extra": []    
+    },
+    "2": {        
+        "name": "CompanyB",
+        "job_description": "Lead the development and optimization of features within TikTok Ads Manager, focusing on improving the ads creation workflow and user journey for the Creative performance ads vertical. Recommend and prioritize innovative features to enhance the usability and performance of the platform, ensuring the ad creation experience is seamless and intuitive for these verticals. Collaborate with cross-functional teams to identify challenges, define product strategies, and set objectives that align with the needs of Creative performance advertisers. Leverage customer feedback, user research, and data analytics to identify opportunities for growth and continuous improvement in the ad creation process. Stay up-to-date with ad tech trends and emerging technologies, applying this knowledge to keep TikTok at the forefront of advertising solutions. Track and analyze key product metrics to inform product decisions and drive iterative improvements to the ads platform.",
+        "package": "200k USD",
+        "extra": []    
+    },
+    "3": {        
+        "name": "CompanyC",
+        "job_description": "As an Account Executive, you will work with your respective set of advertisers to shape their business growth and strengthen long-term relationships. You will drive scalable product adoption and business growth. In this role, you will anticipate how decisions are made at a C-Level, you will explore and uncover the business needs of customers, and understand how our range of product offerings can grow their business. You will set the goal and strategy for how their advertising can reach users.",
+        "package": "300k USD",
+        "extra": []    
+    },
+}
 
 # Stores the entire "debate history" so that we can feed it to Mistral
 # Example structure: [("username", "message text"), ("Bot", "message text"), ...]
-debate_history = []
+# Key: user_id, Value: list of (speaker, message) tuples
+user_debate_histories = {}
 
 # Track which users are currently in the middle of a create_offer_form
 active_form_sessions = {}
@@ -49,13 +77,12 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 # Helper Functions
 #
 
-def build_debate_context() -> str:
+def build_debate_context(user_id: int) -> str:
     """
     Constructs a single string that includes:
       1) All current offers (with name, job_description, package, and any extra info).
-      2) The entire debate history of user/bot messages so far.
+      2) The debate history of user/bot messages so far for the specific user.
     """
-
     # 1) Summarize all job offers
     offers_summary_lines = ["Currently considered job offers:\n"]
     if not offers:
@@ -73,12 +100,13 @@ def build_debate_context() -> str:
 
     offers_summary = "\n".join(offers_summary_lines)
 
-    # 2) Debate history
+    # 2) User-specific debate history
     debate_lines = ["Conversation history (user comments, prior arguments):"]
-    if not debate_history:
-        debate_lines.append("  (No conversation so far.)")
+    user_history = user_debate_histories.get(user_id, [])
+    if not user_history:
+         debate_lines.append("  (No conversation so far.)")
     else:
-        for speaker, text in debate_history:
+        for speaker, text in user_history:
             debate_lines.append(f"{speaker}: {text}")
     debate_text = "\n".join(debate_lines)
 
@@ -86,14 +114,13 @@ def build_debate_context() -> str:
     context_str = f"{offers_summary}\n\n{debate_text}"
     return context_str
 
-
-async def generate_company_argument(offer_id: int) -> str:
+async def generate_company_argument(offer_id: int, user_id: int) -> str:
     """
     Uses the MistralAgent to produce a custom argument from a specific company's perspective,
     given the entire debate context so far.
     """
     # Step 1: Build the complete context as a system prompt
-    context = build_debate_context()
+    context = build_debate_context(user_id)
     system_prompt = (
         "You are simulating a debate between multiple companies that want to hire a candidate.\n"
         "Include all relevant details in your responses, but stay in-character as the 'debate organizer.'\n"
@@ -148,14 +175,27 @@ async def on_message(message: discord.Message):
         # is waiting for their input with bot.wait_for(...)
         return
 
-    # Otherwise, this is a normal user message; let's forward it to Mistral
+     # Otherwise, this is a normal user message; add it to debate history
+    # and trigger a new round of debate
     logger.info(f"Processing normal message from {message.author}: {message.content}")
-    debate_history.append((message.author.display_name, message.content))
-    ai_response = await agent.run(message)
-    debate_history.append(("Bot", ai_response))
+    # Initialize debate history for new users
+    if message.author.id not in user_debate_histories:
+        user_debate_histories[message.author.id] = []
+    
+    # Add user's message to their personal history
+    user_debate_histories[message.author.id].append((message.author.display_name, message.content))
 
-    await message.reply(ai_response)
-
+    # Trigger a new round of debate with all companies
+    if offers:
+        await message.reply("**Companies respond to your message:**")
+        for offer_id in offers:
+            # Generate response using user-specific context
+            argument = await generate_company_argument(offer_id, message.author.id)
+            # Store company's response in user's personal history
+            user_debate_histories[message.author.id].append((f"Company {offers[offer_id]['name']}", argument))
+            await message.reply(f"**{offers[offer_id]['name']} (Offer ID {offer_id})**:\n{argument}")
+    else:
+        await message.reply("No offers available to debate! Use `!create` to add some offers first.")
 
 #
 # Bot Commands
@@ -246,30 +286,46 @@ async def create_offer_form(ctx: commands.Context):
         "Type as many lines as you want. When finished, type `DONE` on a separate line.\n"
         "Or type `cancel` to abort."
     )
-    job_description_lines = []
-    while True:
-        try:
-            msg = await bot.wait_for(
+    try:
+        first_msg = await bot.wait_for(
                 "message",
                 check=lambda m: m.author == ctx.author and m.channel == ctx.channel,
                 timeout=300
             )
-        except:
-            await ctx.send("**Timed out** while waiting for the job description. Aborting.")
-            active_form_sessions.pop(ctx.author.id, None)
-            return
+    except:
+        await ctx.send("**Timed out** while waiting for the job description. Aborting.")
+        active_form_sessions.pop(ctx.author.id, None)
+        return
+    logger.info(f"job description: {first_msg.content}")
+    if validators.url(first_msg.content):  # Check if it's a valid URL
+        logger.info(f"user inputs an url.")
+        job_description = fetch_website_info(first_msg.content)
+        logger.info(f"parsed url: {job_description[:30]}")
+    else:
+        job_description_lines = [first_msg.content]
+        while True:
+            try:
+                msg = await bot.wait_for(
+                    "message",
+                    check=lambda m: m.author == ctx.author and m.channel == ctx.channel,
+                    timeout=300
+                )
+            except:
+                await ctx.send("**Timed out** while waiting for the job description. Aborting.")
+                active_form_sessions.pop(ctx.author.id, None)
+                return
 
-        if msg.content.lower() == "cancel":
-            await ctx.send("**Cancelled.** Aborting the creation process.")
-            active_form_sessions.pop(ctx.author.id, None)
-            return
+            if msg.content.lower() == "cancel":
+                await ctx.send("**Cancelled.** Aborting the creation process.")
+                active_form_sessions.pop(ctx.author.id, None)
+                return
 
-        if msg.content.lower() == "done":
-            break
+            if msg.content.lower() == "done":
+                break
 
-        job_description_lines.append(msg.content)
+            job_description_lines.append(msg.content)
 
-    job_description = "\n".join(job_description_lines)
+        job_description = "\n".join(job_description_lines)
 
     # 5) Ask for Package
     success, package_details = await ask_user_for_input(
@@ -341,10 +397,10 @@ async def remove_offer(ctx: commands.Context, offer_id: int):
     )
 
 
-@bot.command(name="list_offers", help="List all currently available offers.")
+@bot.command(name="list", help="List all currently available offers.")
 async def list_all_offers(ctx: commands.Context):
     """
-    !list_offers
+    !list
     Displays all offers in the 'offers' dictionary.
     """
     if not offers:
@@ -368,43 +424,63 @@ async def list_all_offers(ctx: commands.Context):
     await ctx.send(message_text)
 
 
-@bot.command(name="y", help="Continue the debate for one round (all companies speak).")
+@bot.command(name="go", help="Continue the debate for one round (all companies speak).")
 async def continue_debate(ctx: commands.Context, offer_id: int = None):
     """
-    !y
+    !go
     Allows each company in the offers dictionary to speak in turn,
     generating an AI-based argument from each company's perspective.
-    !y <offer_id> - Ask a specific company to speak
+    !go <offer_id> - Ask a specific company to speak
     """
     if not offers:
         await ctx.send("No offers available to debate!")
         return
 
-    if offer_id is None:
-        # For each offer in memory, generate a new argument
-        for offer_id, data in offers.items():
-            argument = await generate_company_argument(offer_id)
-            # Optionally, store it in debate_history so future calls see it
-            debate_history.append((f"Company {data['name']}", argument))
+    # Initialize debate history for new users
+    if ctx.author.id not in user_debate_histories:
+        user_debate_histories[ctx.author.id] = []
 
-            # Send the argument to the channel
-            await ctx.send(f"**{data['name']} (Offer ID {offer_id})**:\n{argument}")
+    if offer_id is None:
+        # Generate arguments from all companies
+        for oid in offers:
+            argument = await generate_company_argument(oid, ctx.author.id)
+            # Store response in user's personal history
+            user_debate_histories[ctx.author.id].append((f"Company {offers[oid]['name']}", argument))
+            await ctx.send(f"**{offers[oid]['name']} (Offer ID {oid})**:\n{argument}")
         return
     
-    # Company-specific logic
+    # Logic for a specific company
     if offer_id not in offers:
         await ctx.send(f"No offer found with ID {offer_id}.")
         return
     
     company_data = offers[offer_id]
-    argument = await generate_company_argument(offer_id)
+    argument = await generate_company_argument(offer_id, ctx.author.id)
 
-    # Store this argument in debate_history
-    debate_history.append((f"Company {company_data['name']}", argument))
-
-    # Send the new argument to the channel
+    # Store the argument in user's personal history
+    user_debate_histories[ctx.author.id].append((f"Company {company_data['name']}", argument))
     await ctx.send(f"**{company_data['name']} (Offer ID {offer_id})**:\n{argument}")
 
+# helper
+def fetch_website_info(url: str) -> str:
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()  # Raise an error for HTTP issues
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Extract key content (e.g., paragraphs, headlines)
+        # headlines = [h.get_text() for h in soup.find_all(['h1', 'h2'])]
+        paragraphs = [p.get_text() for p in soup.find_all('p')]
+
+        # Join extracted text
+        extracted_text = "\n".join(paragraphs)
+
+        return extracted_text if extracted_text else "No meaningful content found."
+
+    except requests.exceptions.RequestException as e:
+        return f"Error fetching website: {e}"
 
 
 if __name__ == "__main__":
