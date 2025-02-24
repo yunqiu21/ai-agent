@@ -18,33 +18,33 @@ import validators
 # Global Data Structures
 #
 
-# In-memory dictionary to store offers:
-#   offers[offer_id] = {
-#       "name": "Company XYZ",
-#       "job_description": "...",
-#       "package": "...",
-#       "extra": [ ...list of appended updates... ]
-#   }
-offers = {
-    "1": {        
-        "name": "CompanyA",
-        "job_description": "As a Data professional at Meta, you will shape the future of people-facing and business-facing products we build across our entire family of applications (Facebook, Instagram, Messenger, WhatsApp, Oculus). By applying your technical skills, analytical mindset, and product intuition to one of the richest data sets in the world, you will have the opportunity to work on complex and meaningful problems that have a direct impact on the lives of people around the world. You will have the chance to work with cutting-edge technology and tools to develop innovative solutions to some of the most pressing challenges facing our platform.",
-        "package": "100k USD",
-        "extra": []    
-    },
-    "2": {        
-        "name": "CompanyB",
-        "job_description": "Lead the development and optimization of features within TikTok Ads Manager, focusing on improving the ads creation workflow and user journey for the Creative performance ads vertical. Recommend and prioritize innovative features to enhance the usability and performance of the platform, ensuring the ad creation experience is seamless and intuitive for these verticals. Collaborate with cross-functional teams to identify challenges, define product strategies, and set objectives that align with the needs of Creative performance advertisers. Leverage customer feedback, user research, and data analytics to identify opportunities for growth and continuous improvement in the ad creation process. Stay up-to-date with ad tech trends and emerging technologies, applying this knowledge to keep TikTok at the forefront of advertising solutions. Track and analyze key product metrics to inform product decisions and drive iterative improvements to the ads platform.",
-        "package": "200k USD",
-        "extra": []    
-    },
-    "3": {        
-        "name": "CompanyC",
-        "job_description": "As an Account Executive, you will work with your respective set of advertisers to shape their business growth and strengthen long-term relationships. You will drive scalable product adoption and business growth. In this role, you will anticipate how decisions are made at a C-Level, you will explore and uncover the business needs of customers, and understand how our range of product offerings can grow their business. You will set the goal and strategy for how their advertising can reach users.",
-        "package": "300k USD",
-        "extra": []    
-    },
-}
+# Change the offers dictionary to be user-specific
+# Structure: offers[user_id][offer_id] = { offer_data }
+offers = {}
+# offers = {
+#     "1049221845360066620": {
+#     "1": {        
+#         "name": "CompanyA",
+#         "job_description": "As a Data professional at Meta, you will shape the future of people-facing and business-facing products we build across our entire family of applications (Facebook, Instagram, Messenger, WhatsApp, Oculus). By applying your technical skills, analytical mindset, and product intuition to one of the richest data sets in the world, you will have the opportunity to work on complex and meaningful problems that have a direct impact on the lives of people around the world. You will have the chance to work with cutting-edge technology and tools to develop innovative solutions to some of the most pressing challenges facing our platform.",
+#         "package": "100k USD",
+#         "extra": []    
+#     },
+#     },
+#     "761050704008708146":{
+#     "1": {        
+#         "name": "CompanyB",
+#         "job_description": "Lead the development and optimization of features within TikTok Ads Manager, focusing on improving the ads creation workflow and user journey for the Creative performance ads vertical. Recommend and prioritize innovative features to enhance the usability and performance of the platform, ensuring the ad creation experience is seamless and intuitive for these verticals. Collaborate with cross-functional teams to identify challenges, define product strategies, and set objectives that align with the needs of Creative performance advertisers. Leverage customer feedback, user research, and data analytics to identify opportunities for growth and continuous improvement in the ad creation process. Stay up-to-date with ad tech trends and emerging technologies, applying this knowledge to keep TikTok at the forefront of advertising solutions. Track and analyze key product metrics to inform product decisions and drive iterative improvements to the ads platform.",
+#         "package": "200k USD",
+#         "extra": []    
+#     },
+#     "2": {        
+#         "name": "CompanyC",
+#         "job_description": "As an Account Executive, you will work with your respective set of advertisers to shape their business growth and strengthen long-term relationships. You will drive scalable product adoption and business growth. In this role, you will anticipate how decisions are made at a C-Level, you will explore and uncover the business needs of customers, and understand how our range of product offerings can grow their business. You will set the goal and strategy for how their advertising can reach users.",
+#         "package": "300k USD",
+#         "extra": []    
+#     },
+#     },
+# }
 
 # Stores the entire "debate history" so that we can feed it to Mistral
 # Example structure: [("username", "message text"), ("Bot", "message text"), ...]
@@ -102,8 +102,13 @@ class CreateOfferModal(discord.ui.Modal, title="Create New Offer"):
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
+            user_id = interaction.user.id
+            logger.info(user_id)
+            if user_id not in offers:
+                offers[user_id] = {}
+
             offer_id = int(self.offer_id.value)
-            if str(offer_id) in offers:
+            if str(offer_id) in offers[user_id]:
                 await interaction.response.send_message("An offer with this ID already exists!", ephemeral=True)
                 return
 
@@ -116,8 +121,8 @@ class CreateOfferModal(discord.ui.Modal, title="Create New Offer"):
                     await interaction.response.send_message(f"Failed to fetch URL content: {job_desc}", ephemeral=True)
                     return
 
-            # Create the offer
-            offers[str(offer_id)] = {
+            # Create the offer under the user's ID
+            offers[user_id][str(offer_id)] = {
                 "name": self.company_name.value,
                 "job_description": job_desc,
                 "package": self.package.value,
@@ -140,9 +145,10 @@ class CreateOfferModal(discord.ui.Modal, title="Create New Offer"):
 
 # Update Offer Modal
 class UpdateOfferModal(discord.ui.Modal, title="Update Offer"):
-    def __init__(self, offer_id: str):
+    def __init__(self, offer_id: str, user_id: int):
         super().__init__()
         self.offer_id = offer_id
+        self.user_id = user_id
         
         self.extra_info = discord.ui.TextInput(
             label="Additional Information",
@@ -153,7 +159,7 @@ class UpdateOfferModal(discord.ui.Modal, title="Update Offer"):
         self.add_item(self.extra_info)
 
     async def on_submit(self, interaction: discord.Interaction):
-        offers[self.offer_id]["extra"].append(self.extra_info.value)
+        offers[self.user_id][self.offer_id]["extra"].append(self.extra_info.value)
         await interaction.response.send_message(
             f"**Updated** offer `{self.offer_id}` with new info:\n{self.extra_info.value}"
         )
@@ -166,11 +172,12 @@ async def create(interaction: discord.Interaction):
 
 @bot.tree.command(name="update", description="Update an existing offer")
 async def update(interaction: discord.Interaction, offer_id: str):
-    if offer_id not in offers:
+    user_id = interaction.user.id
+    if user_id not in offers or offer_id not in offers[user_id]:
         await interaction.response.send_message(f"No offer found with ID `{offer_id}`.", ephemeral=True)
         return
         
-    modal = UpdateOfferModal(offer_id)
+    modal = UpdateOfferModal(offer_id, user_id)
     await interaction.response.send_modal(modal)
 #
 # Helper Functions
@@ -179,15 +186,15 @@ async def update(interaction: discord.Interaction, offer_id: str):
 def build_debate_context(user_id: int) -> str:
     """
     Constructs a single string that includes:
-      1) All current offers (with name, job_description, package, and any extra info).
+      1) All current offers for this user
       2) The debate history of user/bot messages so far for the specific user.
     """
-    # 1) Summarize all job offers
+    # 1) Summarize all job offers for this user
     offers_summary_lines = ["Currently considered job offers:\n"]
-    if not offers:
+    if user_id not in offers or not offers[user_id]:
         offers_summary_lines.append("  (No offers yet.)\n")
     else:
-        for oid, data in offers.items():
+        for oid, data in offers[user_id].items():
             extra_text = "\n       ".join(data["extra"]) if data["extra"] else "(No extra updates)"
             offers_summary_lines.append(
                 f" • Offer ID: {oid}\n"
@@ -228,7 +235,7 @@ async def generate_company_argument(offer_id: int, user_id: int) -> str:
     )
 
     # Step 2: Identify the target company
-    company_data = offers.get(offer_id)
+    company_data = offers[user_id].get(offer_id)
     if not company_data:
         # Should ideally never happen if we call this function with a valid ID
         return f"No company found with ID {offer_id}."
@@ -290,16 +297,16 @@ async def on_message(message: discord.Message):
     user_debate_histories[message.author.id].append((message.author.display_name, message.content))
 
     # Trigger a new round of debate with all companies
-    if offers:
+    if message.author.id in offers and offers[message.author.id]:
         await message.reply("**Companies respond to your message:**")
-        for offer_id in offers:
+        for oid in offers[message.author.id]:
             # Generate response using user-specific context
-            argument = await generate_company_argument(offer_id, message.author.id)
+            argument = await generate_company_argument(oid, message.author.id)
             # Store company's response in user's personal history
-            user_debate_histories[message.author.id].append((f"Company {offers[offer_id]['name']}", argument))
-            await message.reply(f"**{offers[offer_id]['name']} (Offer ID {offer_id})**:\n{argument}")
+            user_debate_histories[message.author.id].append((f"Company {offers[message.author.id][oid]['name']}", argument))
+            await message.reply(f"**{offers[message.author.id][oid]['name']} (Offer ID {oid})**:\n{argument}")
     else:
-        await message.reply("No offers available to debate! Use `!create` to add some offers first.")
+        await message.reply("No offers available to debate! Use `/create` to add some offers first.")
 
 #
 # Bot Commands
@@ -447,7 +454,7 @@ async def ask_user_for_input(ctx: commands.Context, prompt: str, timeout=120) ->
 #         f"**Job Description:**\n{job_description}\n"
 #         f"**Package:** {package_details}\n"
 #     )
-#     await ctx.send(f"**Here is what you’ve entered:**\n{summary}")
+#     await ctx.send(f"**Here is what you've entered:**\n{summary}")
 
 #     success, confirm = await ask_user_for_input(ctx, "Type `yes` to confirm or `no` to abort:")
 #     if not success:
@@ -505,15 +512,16 @@ async def remove_offer(ctx: commands.Context, offer_id: int):
 async def list_all_offers(ctx: commands.Context):
     """
     !list
-    Displays all offers in the 'offers' dictionary.
+    Displays all offers for the current user.
     """
-    if not offers:
+    user_id = ctx.author.id
+    if user_id not in offers or not offers[user_id]:
         await ctx.send("No offers are currently available.")
         return
 
     # Build a string listing each offer
     lines = ["**Currently Available Offers:**\n"]
-    for oid, data in offers.items():
+    for oid, data in offers[user_id].items():
         lines.append(
             f"**Offer ID:** {oid}\n"
             f"**Company Name:** {data['name']}\n"
@@ -524,7 +532,6 @@ async def list_all_offers(ctx: commands.Context):
         )
 
     message_text = "\n".join(lines)
-    # If you worry about message length, you can chunk it or send multiple messages
     await ctx.send(message_text)
 
 
@@ -532,37 +539,38 @@ async def list_all_offers(ctx: commands.Context):
 async def continue_debate(ctx: commands.Context, offer_id: int = None):
     """
     !go
-    Allows each company in the offers dictionary to speak in turn,
+    Allows each company in the user's offers to speak in turn,
     generating an AI-based argument from each company's perspective.
     !go <offer_id> - Ask a specific company to speak
     """
-    if not offers:
+    user_id = ctx.author.id
+    if user_id not in offers or not offers[user_id]:
         await ctx.send("No offers available to debate!")
         return
 
     # Initialize debate history for new users
-    if ctx.author.id not in user_debate_histories:
-        user_debate_histories[ctx.author.id] = []
+    if user_id not in user_debate_histories:
+        user_debate_histories[user_id] = []
 
     if offer_id is None:
         # Generate arguments from all companies
-        for oid in offers:
-            argument = await generate_company_argument(oid, ctx.author.id)
+        for oid in offers[user_id]:
+            argument = await generate_company_argument(oid, user_id)
             # Store response in user's personal history
-            user_debate_histories[ctx.author.id].append((f"Company {offers[oid]['name']}", argument))
-            await ctx.send(f"**{offers[oid]['name']} (Offer ID {oid})**:\n{argument}")
+            user_debate_histories[user_id].append((f"Company {offers[user_id][oid]['name']}", argument))
+            await ctx.send(f"**{offers[user_id][oid]['name']} (Offer ID {oid})**:\n{argument}")
         return
     
     # Logic for a specific company
-    if offer_id not in offers:
+    if str(offer_id) not in offers[user_id]:
         await ctx.send(f"No offer found with ID {offer_id}.")
         return
     
-    company_data = offers[offer_id]
-    argument = await generate_company_argument(offer_id, ctx.author.id)
+    company_data = offers[user_id][str(offer_id)]
+    argument = await generate_company_argument(offer_id, user_id)
 
     # Store the argument in user's personal history
-    user_debate_histories[ctx.author.id].append((f"Company {company_data['name']}", argument))
+    user_debate_histories[user_id].append((f"Company {company_data['name']}", argument))
     await ctx.send(f"**{company_data['name']} (Offer ID {offer_id})**:\n{argument}")
 
 # helper
@@ -586,6 +594,35 @@ def fetch_website_info(url: str) -> str:
     except requests.exceptions.RequestException as e:
         return f"Error fetching website: {e}"
 
+@bot.command(name="advise", help="Summarizes the conversation and suggests which offer to choose.")
+async def advise(ctx):
+    user_id = ctx.author.id
+    
+    # Ensure the user has participated in a debate
+    if user_id not in user_debate_histories or not user_debate_histories[user_id]:
+        await ctx.send("You haven't discussed any offers yet. Start a discussion before asking for advice!")
+        return
+
+    # Build full debate context
+    context = build_debate_context(user_id)
+
+    # System prompt for decision-making
+    system_prompt = (
+        "You are an expert career advisor helping a candidate choose between multiple job offers. "
+        "Based on the given offers, discussion history, and priorities of the user, "
+        "provide a thoughtful recommendation on which offer they should take. "
+        "Consider salary, job responsibilities, career growth, and company culture."
+    )
+
+    # User prompt to summarize and decide
+    user_prompt = (
+        "Summarize the discussion so far and recommend the best job offer based on the candidate's interests and debate history. No more than 400 characters."
+    )
+
+    # Generate advice using Mistral
+    advice = await agent.generate_custom_response(system_prompt, user_prompt)
+
+    await ctx.send(f"**Career Advice:**\n{advice}")
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
