@@ -5,7 +5,7 @@ import logging
 
 from discord.ext import commands
 from dotenv import load_dotenv
-from agent import MistralAgent
+from agent import GPTAgent
 
 from discord.ui import Button, View, Modal, TextInput
 from discord import ButtonStyle, TextStyle
@@ -67,7 +67,7 @@ intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Mistral agent
-agent = MistralAgent()
+agent = GPTAgent()
 
 # Fetch Discord token
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -137,7 +137,10 @@ class CreateOfferModal(discord.ui.Modal, title="Create New Offer"):
             )
 
             # Generate initial AI response
-            argument = await generate_company_argument(str(offer_id), interaction.user.id)
+            argument = await generate_company_argument(str(offer_id), user_id)
+            if user_id not in user_debate_histories:
+                user_debate_histories[user_id] = []
+            user_debate_histories[user_id].append((f"Company {offers[user_id][str(offer_id)]['name']}", argument))
             await interaction.followup.send(f"**Initial AI Response from {self.company_name.value}**:\n{argument}")
 
         except ValueError:
@@ -185,68 +188,83 @@ async def update(interaction: discord.Interaction, offer_id: str):
 
 def build_debate_context(user_id: int) -> str:
     """
-    Constructs a single string that includes:
-      1) All current offers for this user
-      2) The debate history of user/bot messages so far for the specific user.
+    Constructs a structured context string that includes:
+      1) A summary of all current job offers for the user.
+      2) The debate history, including arguments from companies and user responses.
     """
-    # 1) Summarize all job offers for this user
-    offers_summary_lines = ["Currently considered job offers:\n"]
+
+    # 1) Summarize all job offers
+    offers_summary_lines = ["### Current Job Offers Under Consideration ###\n"]
     if user_id not in offers or not offers[user_id]:
-        offers_summary_lines.append("  (No offers yet.)\n")
+        offers_summary_lines.append("No job offers available.\n")
     else:
         for oid, data in offers[user_id].items():
-            extra_text = "\n       ".join(data["extra"]) if data["extra"] else "(No extra updates)"
+            extra_text = "\n    ".join(data["extra"]) if data["extra"] else "None"
             offers_summary_lines.append(
-                f" • Offer ID: {oid}\n"
-                f"   Company Name: {data['name']}\n"
-                f"   Job Description: {data['job_description']}\n"
-                f"   Package: {data['package']}\n"
-                f"   Extra Info:\n       {extra_text}\n"
+                f"**Offer ID:** {oid}\n"
+                f"**Company:** {data['name']}\n"
+                f"**Job Description:** {data['job_description']}\n"
+                f"**Compensation Package:** {data['package']}\n"
+                f"**Additional Information:** {extra_text}\n"
             )
 
-    offers_summary = "\n".join(offers_summary_lines)
+    offers_summary = f"\n{'-'*40}".join(offers_summary_lines)
 
     # 2) User-specific debate history
-    debate_lines = ["Conversation history (user comments, prior arguments):"]
+    debate_lines = ["### Debate History ###\n"]
     user_history = user_debate_histories.get(user_id, [])
+
     if not user_history:
-         debate_lines.append("  (No conversation so far.)")
+        debate_lines.append("No debate has occurred yet.")
     else:
         for speaker, text in user_history:
-            debate_lines.append(f"{speaker}: {text}")
+            # # Label speakers clearly
+            # speaker_label = (
+            #     "[User]" if speaker == "user" else
+            #     f"[Company: {speaker}]" if speaker in offers[user_id] else
+            #     "[Debate Organizer]"
+            # )
+            debate_lines.append(f"[{speaker}]: {text}")
+
     debate_text = "\n".join(debate_lines)
 
-    # Combine them
-    context_str = f"{offers_summary}\n\n{debate_text}"
+    # Combine sections with a clear separator
+    context_str = f"{offers_summary}\n\n{'='*40}\n\n{debate_text}"
+    
     return context_str
 
-async def generate_company_argument(offer_id: int, user_id: int) -> str:
+
+async def generate_company_argument(offer_id: int, user_id: int, user_msg=None) -> str:
     """
-    Uses the MistralAgent to produce a custom argument from a specific company's perspective,
+    Uses the agent to produce a custom argument from a specific company's perspective,
     given the entire debate context so far.
     """
     # Step 1: Build the complete context as a system prompt
     context = build_debate_context(user_id)
     system_prompt = (
-        "You are simulating a debate between multiple companies that want to hire a candidate.\n"
-        "Include all relevant details in your responses, but stay in-character as the 'debate organizer.'\n"
-        "You have the following context:\n\n"
+        "You are facilitating a competitive hiring debate between multiple companies trying to recruit a candidate.\n"
+        "Each company must respond to prior arguments made by competitors while emphasizing its unique advantages.\n"
+        "The candidate has shared their preferences and concerns, which should be prioritized when crafting responses.\n"
+        "Stay in-character as the 'debate organizer,' ensuring companies remain persuasive and relevant.\n\n"
+        "Context so far:\n"
         f"{context}\n"
     )
 
     # Step 2: Identify the target company
     company_data = offers[user_id].get(offer_id)
     if not company_data:
-        # Should ideally never happen if we call this function with a valid ID
         return f"No company found with ID {offer_id}."
 
-    # Step 3: Construct user_prompt telling Mistral to produce an argument from the company's perspective
+    # Step 3: Construct user_prompt telling the agent to produce an argument from the company's perspective
     user_prompt = (
-        f"Now, produce a persuasive argument from the perspective of company '{company_data['name']}' (offer ID: {offer_id}). "
-        f"Focus on why the candidate should choose this offer over others. Do not repeat your previous arguments. At most 400 characters"
+        f"Now, generate a persuasive counter-argument on behalf of '{company_data['name']}' (offer ID: {offer_id}).\n"
+        "Respond directly to competing companies' arguments and emphasize how this offer uniquely meets the candidate's preferences.\n"
+        "Address any concerns raised by the candidate and explain why this company is the best choice.\n"
+        "Avoid repeating previous points and keep the response within 600 characters."
     )
 
-    # Step 4: Call MistralAgent
+    # Step 4: Call agent
+    print(system_prompt, user_prompt)
     response_text = await agent.generate_custom_response(system_prompt, user_prompt)
     return response_text
 
@@ -622,7 +640,7 @@ async def advise(ctx):
     # Generate advice using Mistral
     advice = await agent.generate_custom_response(system_prompt, user_prompt)
 
-    await ctx.send(f"**Career Advice:**\n{advice}")
+    await ctx.send(f"**Bot's Advice:**\n{advice}")
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)

@@ -1,18 +1,17 @@
-# agent.py
 import os
-from mistralai import Mistral
+import openai
 import discord
 import time
 import asyncio
 from datetime import datetime, timedelta
 
-MISTRAL_MODEL = "mistral-large-latest"
+GPT_MODEL = "gpt-4o-2024-11-20"
 SYSTEM_PROMPT = "You are a helpful assistant."
 
-class MistralAgent:
+class GPTAgent:
     def __init__(self):
-        MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
-        self.client = Mistral(api_key=MISTRAL_API_KEY)
+        self.api_key = os.getenv("OPENAI_API_KEY")
+        self.client = openai.AsyncOpenAI(api_key=self.api_key)
         # Add rate limiting attributes
         self.request_queue = asyncio.Queue()
         self.last_request_time = datetime.now()
@@ -37,8 +36,8 @@ class MistralAgent:
                 messages, future = request
                 
                 try:
-                    response = await self.client.chat.complete_async(
-                        model=MISTRAL_MODEL,
+                    response = await self.client.chat.completions.create(
+                        model=GPT_MODEL,
                         messages=messages,
                     )
                     future.set_result(response.choices[0].message.content)
@@ -61,7 +60,7 @@ class MistralAgent:
         return await future
 
     async def run(self, message: discord.Message):
-        """Default method: sends user message to Mistral and returns the response."""
+        """Default method: sends user message to GPT-4o and returns the response."""
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": message.content},
@@ -69,7 +68,7 @@ class MistralAgent:
         return await self.queue_request(messages)
 
     async def generate_custom_response(self, system_prompt: str, user_prompt: str) -> str:
-        """Helper method to generate a custom Mistral response"""
+        """Helper method to generate a custom GPT-4o response"""
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
