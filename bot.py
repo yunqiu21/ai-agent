@@ -75,15 +75,27 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 # Create Offer Modal with URL support
 class CreateOfferModal(discord.ui.Modal, title="Create New Offer"):
-    offer_id = discord.ui.TextInput(
-        label="Offer ID",
-        placeholder="Enter a number (e.g., 1, 2, 3)",
-        style=discord.TextStyle.short,
-        required=True
-    )
+    # offer_id = discord.ui.TextInput(
+    #     label="Offer ID",
+    #     placeholder="Enter a number (e.g., 1, 2, 3)",
+    #     style=discord.TextStyle.short,
+    #     required=True
+    # )
     company_name = discord.ui.TextInput(
         label="Company Name",
         placeholder="Enter company name",
+        style=discord.TextStyle.short,
+        required=True
+    )
+    job_title = discord.ui.TextInput(
+        label="Job Title",
+        placeholder="Enter job title",
+        style=discord.TextStyle.short,
+        required=True
+    )
+    location = discord.ui.TextInput(
+        label="Location",
+        placeholder="Enter job location (e.g., New York, Remote)",
         style=discord.TextStyle.short,
         required=True
     )
@@ -107,10 +119,10 @@ class CreateOfferModal(discord.ui.Modal, title="Create New Offer"):
             if user_id not in offers:
                 offers[user_id] = {}
 
-            offer_id = int(self.offer_id.value)
-            if str(offer_id) in offers[user_id]:
-                await interaction.response.send_message("An offer with this ID already exists!", ephemeral=True)
-                return
+            # Auto-generate offer_id
+            offer_id = str(len(offers[user_id]) + 1)
+            while offer_id in offers[user_id]:  # In case of deleted offers, find next available number
+                offer_id = str(int(offer_id) + 1)
 
             # Check if job description is a URL
             job_desc = self.job_description.value
@@ -122,8 +134,10 @@ class CreateOfferModal(discord.ui.Modal, title="Create New Offer"):
                     return
 
             # Create the offer under the user's ID
-            offers[user_id][str(offer_id)] = {
+            offers[user_id][offer_id] = {
                 "name": self.company_name.value,
+                "title": self.job_title.value,
+                "location": self.location.value,
                 "job_description": job_desc,
                 "package": self.package.value,
                 "extra": []
@@ -132,19 +146,22 @@ class CreateOfferModal(discord.ui.Modal, title="Create New Offer"):
             await interaction.response.send_message(
                 f"**Success!** Created offer `{offer_id}`:\n"
                 f"- Company Name: {self.company_name.value}\n"
+                f"- Job Title: {self.job_title.value}\n"
+                f"- Location: {self.location.value}\n"
                 f"- Job Description: {job_desc[:100]}...\n"
                 f"- Package: {self.package.value}"
             )
 
             # Generate initial AI response
-            argument = await generate_company_argument(str(offer_id), user_id)
+            argument = await generate_company_argument(offer_id, user_id)
             if user_id not in user_debate_histories:
                 user_debate_histories[user_id] = []
-            user_debate_histories[user_id].append((f"Company {offers[user_id][str(offer_id)]['name']}", argument))
+            user_debate_histories[user_id].append((f"Company {self.company_name.value}", argument))
             await interaction.followup.send(f"**Initial AI Response from {self.company_name.value}**:\n{argument}")
 
-        except ValueError:
-            await interaction.response.send_message("Invalid offer ID! Please use a number.", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error in CreateOfferModal: {e}")
+            await interaction.response.send_message("An error occurred while creating the offer.", ephemeral=True)
 
 # Update Offer Modal
 class UpdateOfferModal(discord.ui.Modal, title="Update Offer"):
@@ -203,6 +220,8 @@ def build_debate_context(user_id: int) -> str:
             offers_summary_lines.append(
                 f"**Offer ID:** {oid}\n"
                 f"**Company:** {data['name']}\n"
+                f"**Job Title:** {data['title']}\n"
+                f"**Location:** {data['location']}\n"
                 f"**Job Description:** {data['job_description']}\n"
                 f"**Compensation Package:** {data['package']}\n"
                 f"**Additional Information:** {extra_text}\n"
@@ -520,11 +539,11 @@ async def ask_user_for_input(ctx: commands.Context, prompt: str, timeout=120) ->
 
 @bot.command(name="remove", help="Remove an existing offer.")
 async def remove_offer(ctx: commands.Context, offer_id: int):
-    if offer_id not in offers:
+    if str(offer_id) not in offers[ctx.author.id]:
         await ctx.send(f"No offer found with ID `{offer_id}`.")
         return
 
-    removed_offer = offers.pop(offer_id)
+    removed_offer = offers[ctx.author.id].pop(str(offer_id))
     await ctx.send(
         f"**Removed** offer `{offer_id}` from consideration:\n"
         f"- Company: {removed_offer['name']}"
