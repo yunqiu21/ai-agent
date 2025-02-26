@@ -12,3 +12,4 @@ dependencies:
     - bs4>=0.0.2
     - requests>=2.32.3
     - validators>=0.34.0
+    - openai>=1.60.1
