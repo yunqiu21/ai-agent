@@ -245,6 +245,7 @@ async def generate_company_argument(offer_id: int, user_id: int, user_msg=None) 
         "You are facilitating a competitive hiring debate between multiple companies trying to recruit a candidate.\n"
         "Each company must respond to prior arguments made by competitors while emphasizing its unique advantages.\n"
         "The candidate has shared their preferences and concerns, which should be prioritized when crafting responses.\n"
+        "If the candidate has just asked a question, companies must address it directly before presenting their own arguments.\n"
         "Stay in-character as the 'debate organizer,' ensuring companies remain persuasive and relevant.\n\n"
         "Context so far:\n"
         f"{context}\n"
@@ -255,19 +256,23 @@ async def generate_company_argument(offer_id: int, user_id: int, user_msg=None) 
     if not company_data:
         return f"No company found with ID {offer_id}."
 
-    # Step 3: Construct user_prompt telling the agent to produce an argument from the company's perspective
+    # Step 4: Construct user_prompt telling the agent to respond strategically
     user_prompt = (
-        f"Now, generate a persuasive counter-argument on behalf of '{company_data['name']}' (offer ID: {offer_id}).\n"
-        "Respond directly to competing companies' arguments and emphasize how this offer uniquely meets the candidate's preferences.\n"
-        "Address any concerns raised by the candidate and explain why this company is the best choice.\n"
-        "Avoid repeating previous points and keep the response within 600 characters."
+        f"Generate a persuasive counter-argument on behalf of '{company_data['name']}' (offer ID: {offer_id}).\n"
+        "1. If the candidate has asked a question, **begin by answering it concisely and convincingly**.\n"
+        "2. Respond to competing companies' arguments, pointing out weaknesses or gaps in their offers.\n"
+        "3. Emphasize how your offer uniquely meets the candidate's stated preferences and priorities.\n"
+        "4. Address any concerns raised by the candidate, reinforcing why your company is the best choice.\n"
+        "5. Keep your response engaging and to the point, within 600 characters.\n"
     )
 
-    # Step 4: Call agent
-    print(system_prompt, user_prompt)
+    if user_msg:
+        user_prompt += f"\nThe candidate's most recent question or concern: \"{user_msg}\"\n"
+
+    # Step 5: Call agent
+    # logger.info(system_prompt + "\n" + user_prompt)
     response_text = await agent.generate_custom_response(system_prompt, user_prompt)
     return response_text
-
 
 #
 # Bot Events
@@ -627,17 +632,33 @@ async def advise(ctx):
     # System prompt for decision-making
     system_prompt = (
         "You are an expert career advisor helping a candidate choose between multiple job offers. "
-        "Based on the given offers, discussion history, and priorities of the user, "
-        "provide a thoughtful recommendation on which offer they should take. "
-        "Consider salary, job responsibilities, career growth, and company culture."
+        "Your goal is to provide a **personalized** recommendation based on the candidate’s **stated priorities** "
+        "and the arguments presented by competing companies.\n\n"
+        "Carefully analyze:\n"
+        "1. The candidate's preferences, concerns, and priorities mentioned in the debate.\n"
+        "2. The strengths and weaknesses of each company's offer.\n"
+        "3. How well each company has addressed the candidate's concerns.\n\n"
+        "Your response should be clear, concise, and **directly reference what the candidate and companies have discussed**."
     )
+
+    # Extract candidate's stated preferences from history
+    user_history = user_debate_histories[user_id]
+    candidate_preferences = [
+        text for speaker, text in user_history if speaker == "user"
+    ]
+    latest_preferences = candidate_preferences[-2:] if candidate_preferences else ["(No explicit preferences stated)"]
 
     # User prompt to summarize and decide
     user_prompt = (
-        "Summarize the discussion so far and recommend the best job offer based on the candidate's interests and debate history. No more than 400 characters."
+        "Summarize the discussion and recommend the **best** job offer for the candidate. "
+        "Base your recommendation on **the candidate’s concerns and priorities**, as well as the company arguments.\n\n"
+        "Context so far:\n"
+        f"{context}\n"        
+        "Your response should be **less than 600 characters** and **directly address what was discussed**."
     )
 
-    # Generate advice using Mistral
+    # Generate advice using GPT-4o
+    # logger.info(system_prompt + "\n" + user_prompt)
     advice = await agent.generate_custom_response(system_prompt, user_prompt)
 
     await ctx.send(f"**Bot's Advice:**\n{advice}")
