@@ -245,11 +245,10 @@ def build_debate_context(user_id: int) -> str:
                 f"**Job Description:** {data['job_description']}\n"
                 f"**Compensation Package:** {data['package']}\n"
             )
-
     offers_summary = f"\n{'-'*40}".join(offers_summary_lines)
-    debate_lines = ["### Debate History ###\n"]
-    user_history = user_debate_histories.get(user_id, [])
 
+    debate_lines = ["### Debate History ###\n"]
+    user_history = user_debate_histories.get(user_id, [])[-20:]
     if not user_history:
         debate_lines.append("No debate has occurred yet.")
     else:
@@ -308,11 +307,6 @@ async def on_ready():
 
 @bot.event
 async def on_message(message: discord.Message):
-    """
-    This event is triggered on every incoming message. We skip sending the user's
-    message to Mistral if they are in an active form session. Otherwise, if it's
-    not a command (!...), we send it to Mistral.
-    """
     if message.author.bot:
         return
 
@@ -373,7 +367,7 @@ async def list_all_offers(ctx: commands.Context):
             f"**Company Name:** {data['name']}\n"
             f"**Title:** {data['title']}\n"
             f"**Location:** {data['location']}\n"
-            f"**Job Description:**\n{data['job_description'][:50]}...\n"
+            f"**Job Description:**\n{data['job_description'][:200]}...\n"
             f"**Package:** {data['package']}\n"
             "--------------------------------------\n"
         )

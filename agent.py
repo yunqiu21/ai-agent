@@ -12,7 +12,7 @@ class GPTAgent:
     def __init__(self):
         self.api_key = os.getenv("OPENAI_API_KEY")
         self.client = openai.AsyncOpenAI(api_key=self.api_key)
-        # Add rate limiting attributes
+        # Add rate limiting
         self.request_queue = asyncio.Queue()
         self.last_request_time = datetime.now()
         self.min_request_interval = 1.0  # Minimum seconds between requests
@@ -22,19 +22,17 @@ class GPTAgent:
         """Process queued requests with rate limiting"""
         if self.is_processing:
             return
-        
+
         self.is_processing = True
         try:
             while not self.request_queue.empty():
-                # Wait if needed to respect rate limit
                 time_since_last = (datetime.now() - self.last_request_time).total_seconds()
                 if time_since_last < self.min_request_interval:
                     await asyncio.sleep(self.min_request_interval - time_since_last)
 
-                # Process next request
                 request = await self.request_queue.get()
                 messages, future = request
-                
+
                 try:
                     response = await self.client.chat.completions.create(
                         model=GPT_MODEL,
@@ -43,7 +41,7 @@ class GPTAgent:
                     future.set_result(response.choices[0].message.content)
                 except Exception as e:
                     future.set_exception(e)
-                
+
                 self.last_request_time = datetime.now()
                 self.request_queue.task_done()
         finally:
@@ -53,10 +51,9 @@ class GPTAgent:
         """Queue a request and return a future for the result"""
         future = asyncio.Future()
         await self.request_queue.put((messages, future))
-        
-        # Start processing if not already running
+
         asyncio.create_task(self.process_queue())
-        
+
         return await future
 
     async def run(self, message: discord.Message):
