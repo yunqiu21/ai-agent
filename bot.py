@@ -225,6 +225,86 @@ async def update(interaction: discord.Interaction, offer_id: str):
     modal = UpdateOfferModal(offer_id, user_id)
     await interaction.response.send_modal(modal)
 
+def fetch_website_info(url: str) -> str:
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        paragraphs = [p.get_text() for p in soup.find_all('p')]
+        extracted_text = "\n".join(paragraphs)
+        return extracted_text if extracted_text else "No meaningful content found."
+
+    except requests.exceptions.RequestException as e:
+        return f"Error fetching website: {e}"
+    
+@bot.event
+async def on_ready():
+    logger.info(f"{bot.user} has connected to Discord!")
+    try:
+        synced = await bot.tree.sync()
+        logger.info(f"Synced {len(synced)} command(s)")
+    except Exception as e:
+        logger.error(f"Failed to sync commands: {e}")
+
+@bot.event
+async def on_message(message: discord.Message):
+    if message.author.bot:
+        return
+
+    if message.content.startswith(bot.command_prefix):
+        await bot.process_commands(message)
+        return
+
+    logger.info(f"Processing normal message from {message.author}: {message.content}")
+
+    if message.author.id not in user_debate_histories:
+        user_debate_histories[message.author.id] = []
+
+    user_debate_histories[message.author.id].append((message.author.display_name, message.content))
+
+    if message.author.id in offers and offers[message.author.id]:
+        await message.reply("**Companies respond to your message:**")
+        for oid in offers[message.author.id]:
+            argument = await generate_company_argument(oid, message.author.id)
+            user_debate_histories[message.author.id].append((f"Company {offers[message.author.id][oid]['name']}", argument))
+            await message.reply(f"**{offers[message.author.id][oid]['name']} (Offer ID {oid})**:\n{argument}")
+    else:
+        await message.reply("No offers available to debate! Use `/create` to add some offers first.")
+
+@bot.command(name="go", help="Continue the debate for one round (all companies speak)")
+async def continue_debate(ctx: commands.Context, offer_id: int = None):
+    """
+    !go
+    Allows each company in the user's offers to speak in turn,
+    generating an AI-based argument from each company's perspective.
+    !go <offer_id> - Ask a specific company to speak
+    """
+    user_id = ctx.author.id
+    if user_id not in offers or not offers[user_id]:
+        await ctx.send("No offers available to debate!")
+        return
+
+    if user_id not in user_debate_histories:
+        user_debate_histories[user_id] = []
+
+    if offer_id is None:
+        for oid in offers[user_id]:
+            argument = await generate_company_argument(oid, user_id)
+            user_debate_histories[user_id].append((f"Company {offers[user_id][oid]['name']}", argument))
+            await ctx.send(f"**{offers[user_id][oid]['name']} (Offer ID {oid})**:\n{argument}")
+        return
+
+    if str(offer_id) not in offers[user_id]:
+        await ctx.send(f"No offer found with ID {offer_id}.")
+        return
+
+    company_data = offers[user_id][str(offer_id)]
+    argument = await generate_company_argument(offer_id, user_id)
+
+    user_debate_histories[user_id].append((f"Company {company_data['name']}", argument))
+    await ctx.send(f"**{company_data['name']} (Offer ID {offer_id})**:\n{argument}")
+
 def build_debate_context(user_id: int) -> str:
     """
     Constructs a structured context string that includes:
@@ -296,46 +376,6 @@ async def generate_company_argument(offer_id: int, user_id: int, user_msg=None) 
     response_text = await agent.generate_custom_response(system_prompt, user_prompt)
     return response_text
 
-@bot.event
-async def on_ready():
-    logger.info(f"{bot.user} has connected to Discord!")
-    try:
-        synced = await bot.tree.sync()
-        logger.info(f"Synced {len(synced)} command(s)")
-    except Exception as e:
-        logger.error(f"Failed to sync commands: {e}")
-
-@bot.event
-async def on_message(message: discord.Message):
-    if message.author.bot:
-        return
-
-    if message.content.startswith(bot.command_prefix):
-        await bot.process_commands(message)
-        return
-
-    logger.info(f"Processing normal message from {message.author}: {message.content}")
-
-    if message.author.id not in user_debate_histories:
-        user_debate_histories[message.author.id] = []
-
-    user_debate_histories[message.author.id].append((message.author.display_name, message.content))
-
-    if message.author.id in offers and offers[message.author.id]:
-        await message.reply("**Companies respond to your message:**")
-        for oid in offers[message.author.id]:
-            argument = await generate_company_argument(oid, message.author.id)
-            user_debate_histories[message.author.id].append((f"Company {offers[message.author.id][oid]['name']}", argument))
-            await message.reply(f"**{offers[message.author.id][oid]['name']} (Offer ID {oid})**:\n{argument}")
-    else:
-        await message.reply("No offers available to debate! Use `/create` to add some offers first.")
-
-@bot.command(name="ping", help="Pings the bot")
-async def ping(ctx, *, arg=None):
-    if arg is None:
-        await ctx.send("Pong!")
-    else:
-        await ctx.send(f"Pong! Your argument was {arg}")
 
 @bot.command(name="remove", help="Remove an existing offer")
 async def remove_offer(ctx: commands.Context, offer_id: int):
@@ -375,51 +415,6 @@ async def list_all_offers(ctx: commands.Context):
     message_text = "\n".join(lines)
     await ctx.send(message_text)
 
-@bot.command(name="go", help="Continue the debate for one round (all companies speak)")
-async def continue_debate(ctx: commands.Context, offer_id: int = None):
-    """
-    !go
-    Allows each company in the user's offers to speak in turn,
-    generating an AI-based argument from each company's perspective.
-    !go <offer_id> - Ask a specific company to speak
-    """
-    user_id = ctx.author.id
-    if user_id not in offers or not offers[user_id]:
-        await ctx.send("No offers available to debate!")
-        return
-
-    if user_id not in user_debate_histories:
-        user_debate_histories[user_id] = []
-
-    if offer_id is None:
-        for oid in offers[user_id]:
-            argument = await generate_company_argument(oid, user_id)
-            user_debate_histories[user_id].append((f"Company {offers[user_id][oid]['name']}", argument))
-            await ctx.send(f"**{offers[user_id][oid]['name']} (Offer ID {oid})**:\n{argument}")
-        return
-
-    if str(offer_id) not in offers[user_id]:
-        await ctx.send(f"No offer found with ID {offer_id}.")
-        return
-
-    company_data = offers[user_id][str(offer_id)]
-    argument = await generate_company_argument(offer_id, user_id)
-
-    user_debate_histories[user_id].append((f"Company {company_data['name']}", argument))
-    await ctx.send(f"**{company_data['name']} (Offer ID {offer_id})**:\n{argument}")
-
-def fetch_website_info(url: str) -> str:
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        paragraphs = [p.get_text() for p in soup.find_all('p')]
-        extracted_text = "\n".join(paragraphs)
-        return extracted_text if extracted_text else "No meaningful content found."
-
-    except requests.exceptions.RequestException as e:
-        return f"Error fetching website: {e}"
 
 @bot.command(name="advise", help="Summarizes the conversation and suggests which offer to choose")
 async def advise(ctx):
