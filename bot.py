@@ -62,9 +62,36 @@ logging.basicConfig()
 # Load environment variables
 load_dotenv()
 
+class CustomHelpCommand(commands.HelpCommand):
+    async def send_bot_help(self, mapping):
+        embed = discord.Embed(title="Bot Commands", description="Here are the available commands:", color=discord.Color.blue())
+
+        # List prefix commands with descriptions
+        for cog, commands in mapping.items():
+            filtered_commands = await self.filter_commands(commands, sort=True)
+            command_list = [f"`!{command.name}` - {command.help or 'No description available'}" for command in filtered_commands]
+
+            if command_list:
+                embed.add_field(name=cog.qualified_name if cog else "General", value="\n".join(command_list), inline=False)
+
+        # Manually list slash commands with descriptions
+        slash_commands = [
+            ("/create", "Create a new job offer"),
+            ("/update", "Update an existing offer")
+        ]
+        slash_list = "\n".join([f"`{cmd}` - {desc}" for cmd, desc in slash_commands])
+
+        if slash_list:
+            embed.add_field(name="Slash Commands", value=slash_list, inline=False)
+
+        channel = self.get_destination()
+        await channel.send(embed=embed)
+
+
+
 # Create the bot
 intents = discord.Intents.all()
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=CustomHelpCommand())
 
 # Mistral agent
 agent = GPTAgent()
@@ -147,7 +174,7 @@ class CreateOfferModal(discord.ui.Modal, title="Create New Offer"):
                 f"- Company Name: {self.company_name.value}\n"
                 f"- Job Title: {self.job_title.value}\n"
                 f"- Location: {self.location.value}\n"
-                f"- Job Description: {job_desc[:100]}...\n"
+                f"- Job Description: {job_desc[:200]}...\n"
                 f"- Package: {self.package.value}"
             )
 
@@ -162,26 +189,75 @@ class CreateOfferModal(discord.ui.Modal, title="Create New Offer"):
             logger.error(f"Error in CreateOfferModal: {e}")
             await interaction.response.send_message("An error occurred while creating the offer.", ephemeral=True)
 
-# Update Offer Modal
 class UpdateOfferModal(discord.ui.Modal, title="Update Offer"):
     def __init__(self, offer_id: str, user_id: int):
         super().__init__()
         self.offer_id = offer_id
         self.user_id = user_id
-        
-        self.extra_info = discord.ui.TextInput(
-            label="Additional Information",
-            placeholder="Enter new information about this offer",
+        offer_data = offers[user_id][offer_id]
+
+        # Populate fields with existing values
+        self.company_name = discord.ui.TextInput(
+            label="Company Name",
+            default=offer_data["name"],
+            style=discord.TextStyle.short,
+            required=True
+        )
+        self.job_title = discord.ui.TextInput(
+            label="Job Title",
+            default=offer_data["title"],
+            style=discord.TextStyle.short,
+            required=True
+        )
+        self.location = discord.ui.TextInput(
+            label="Location",
+            default=offer_data["location"],
+            style=discord.TextStyle.short,
+            required=True
+        )
+        self.job_description = discord.ui.TextInput(
+            label="Job Description or URL",
+            default=offer_data["job_description"][:4000],
             style=discord.TextStyle.paragraph,
             required=True
         )
-        self.add_item(self.extra_info)
+        self.package = discord.ui.TextInput(
+            label="Package",
+            default=offer_data["package"],
+            style=discord.TextStyle.short,
+            required=True
+        )
+
+        # Add all fields to the modal
+        self.add_item(self.company_name)
+        self.add_item(self.job_title)
+        self.add_item(self.location)
+        self.add_item(self.job_description)
+        self.add_item(self.package)
 
     async def on_submit(self, interaction: discord.Interaction):
-        offers[self.user_id][self.offer_id]["extra"].append(self.extra_info.value)
-        await interaction.response.send_message(
-            f"**Updated** offer `{self.offer_id}` with new info:\n{self.extra_info.value}"
-        )
+        try:
+            # Update the existing offer
+            offers[self.user_id][self.offer_id] = {
+                "name": self.company_name.value,
+                "title": self.job_title.value,
+                "location": self.location.value,
+                "job_description": self.job_description.value,
+                "package": self.package.value,
+                "extra": offers[self.user_id][self.offer_id].get("extra", [])
+            }
+
+            await interaction.response.send_message(
+                f"**Updated** offer `{self.offer_id}`:\n"
+                f"- Company Name: {self.company_name.value}\n"
+                f"- Job Title: {self.job_title.value}\n"
+                f"- Location: {self.location.value}\n"
+                f"- Job Description: {self.job_description.value[:200]}...\n"
+                f"- Package: {self.package.value}"
+            )
+        except Exception as e:
+            logger.error(f"Error in UpdateOfferModal: {e}")
+            await interaction.response.send_message("An error occurred while updating the offer.", ephemeral=True)
 
 # Slash Commands
 @bot.tree.command(name="create", description="Create a new job offer")
@@ -352,7 +428,7 @@ async def on_message(message: discord.Message):
 #
 # Bot Commands
 
-@bot.command(name="ping", help="Pings the bot.")
+@bot.command(name="ping", help="Pings the bot")
 async def ping(ctx, *, arg=None):
     if arg is None:
         await ctx.send("Pong!")
@@ -536,7 +612,7 @@ async def ask_user_for_input(ctx: commands.Context, prompt: str, timeout=120) ->
 #     await ctx.send(f"**Updated** offer `{offer_id}` with new info:\n{more_info}")
 
 
-@bot.command(name="remove", help="Remove an existing offer.")
+@bot.command(name="remove", help="Remove an existing offer")
 async def remove_offer(ctx: commands.Context, offer_id: int):
     if str(offer_id) not in offers[ctx.author.id]:
         await ctx.send(f"No offer found with ID `{offer_id}`.")
@@ -549,7 +625,7 @@ async def remove_offer(ctx: commands.Context, offer_id: int):
     )
 
 
-@bot.command(name="list", help="List all currently available offers.")
+@bot.command(name="list", help="List all currently available offers")
 async def list_all_offers(ctx: commands.Context):
     """
     !list
@@ -576,7 +652,7 @@ async def list_all_offers(ctx: commands.Context):
     await ctx.send(message_text)
 
 
-@bot.command(name="go", help="Continue the debate for one round (all companies speak).")
+@bot.command(name="go", help="Continue the debate for one round (all companies speak)")
 async def continue_debate(ctx: commands.Context, offer_id: int = None):
     """
     !go
@@ -635,7 +711,7 @@ def fetch_website_info(url: str) -> str:
     except requests.exceptions.RequestException as e:
         return f"Error fetching website: {e}"
 
-@bot.command(name="advise", help="Summarizes the conversation and suggests which offer to choose.")
+@bot.command(name="advise", help="Summarizes the conversation and suggests which offer to choose")
 async def advise(ctx):
     user_id = ctx.author.id
     
@@ -658,13 +734,6 @@ async def advise(ctx):
         "3. How well each company has addressed the candidate's concerns.\n\n"
         "Your response should be clear, concise, and **directly reference what the candidate and companies have discussed**."
     )
-
-    # Extract candidate's stated preferences from history
-    user_history = user_debate_histories[user_id]
-    candidate_preferences = [
-        text for speaker, text in user_history if speaker == "user"
-    ]
-    latest_preferences = candidate_preferences[-2:] if candidate_preferences else ["(No explicit preferences stated)"]
 
     # User prompt to summarize and decide
     user_prompt = (
