@@ -115,7 +115,6 @@ class CreateOfferModal(discord.ui.Modal, title="Create New Offer"):
     async def on_submit(self, interaction: discord.Interaction):
         try:
             user_id = interaction.user.id
-            logger.info(user_id)
             if user_id not in offers:
                 offers[user_id] = {}
 
@@ -679,7 +678,7 @@ async def advise(ctx):
     # Generate advice using GPT-4o
     # logger.info(system_prompt + "\n" + user_prompt)
     advice = await agent.generate_custom_response(system_prompt, user_prompt)
-
+    user_debate_histories[user_id].append((f"Bot's Advice", advice))
     await ctx.send(f"**Bot's Advice:**\n{advice}")
 
 if __name__ == "__main__":
